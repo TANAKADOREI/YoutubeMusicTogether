@@ -51,6 +51,9 @@ namespace YMTCORE
                                 m_server_client_counter.Remove(packet.Data[1]);
                             }
                             break;
+                        case nameof(CMD_Play):
+                            RECV_CMD_Play(packet);
+                            break;
                         case nameof(CMD_AddList):
                             RECV_CMD_AddList(packet);
                             break;
@@ -84,17 +87,28 @@ namespace YMTCORE
 
         private void CMD_Play()
         {
-
+            //라디오 재생
         }
 
-        private void RECV_CMD_Play()
+        private void RECV_CMD_Play(Packet packet)
         {
-
+            CMD_Play();
+            SendMessage(new Packet(m_client, packet));
         }
 
         public void SEND_CMD_Play()
         {
+            DateTime dateTime = DateTime.Now;
 
+            {
+                var packet = new Packet(m_client, nameof(CMD_Play));
+                dateTime = packet.Created;
+                SendMessage(packet);
+            }
+
+            WaitAll(dateTime);
+
+            CMD_Play();
         }
 
         private void CMD_AddList(string direct_url)
@@ -105,6 +119,7 @@ namespace YMTCORE
         private void RECV_CMD_AddList(Packet packet)
         {
             CMD_AddList(packet.Data[1]);
+            SendMessage(new Packet(m_client, packet));
         }
 
         public void SEND_CMD_AddList(string youtube_url)
