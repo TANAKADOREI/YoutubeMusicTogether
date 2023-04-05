@@ -22,14 +22,12 @@ namespace YMTCORE
         public PacketType Type;
         public DateTime Created;
         public string[] Data;
-        public string IP;
 
         /// <summary>
         /// 요청 패킷 생성용
         /// </summary>
-        public Packet(TcpClient socket,params string[] data)
+        public Packet(params string[] data)
         {
-            IP = socket.GetRemoteIPv4String();
             Created = DateTime.UtcNow;
             Type = PacketType.Request;
             Data = data;
@@ -38,9 +36,8 @@ namespace YMTCORE
         /// <summary>
         /// 요청에 의한 대답 생성용
         /// </summary>
-        public Packet(TcpClient socket, Packet packet, params string[] data)
+        public Packet(Packet packet, params string[] data)
         {
-            IP = socket.GetRemoteIPv4String();
             Created = packet.Created;
             Type = PacketType.Response;
             Data = data;
@@ -48,7 +45,7 @@ namespace YMTCORE
 
         public static implicit operator string(Packet packet)
         {
-            return JsonConvert.SerializeObject(packet);
+            return JsonConvert.SerializeObject(packet,Formatting.None);
         }
 
         public static implicit operator Packet(string packet)

@@ -6,21 +6,31 @@ using System.Net.Sockets;
 using System.Text;
 using System.Threading.Tasks;
 using YoutubeExplode;
+using YoutubeExplode.Common;
 using YoutubeExplode.Videos.Streams;
 
 namespace YMTCORE
 {
+    //명령 전송하기전 실패 했을 경우
+    public class FailCommand : Exception
+    {
+
+    }
+
     public class Client
     {
         private readonly YoutubeClient m_youtube;
         private TcpClient m_client;
         private Thread m_thread;
-        private object m_lock = new object();
-        private HashSet<string> m_server_client_counter = new HashSet<string>();//나 빼고
-        private Dictionary<DateTime, List<Packet>> m_packets = new Dictionary<DateTime, List<Packet>>();
+        private Action<string> Log;
 
-        public Client(string ipAddress, int port)
+        YoutubePlayer m_player;
+
+        public Client(Action<string> Log, string ipAddress, int port)
         {
+            m_player = new YoutubePlayer(MusicEnd);
+            this.Log = Log;
+            m_youtube = new YoutubeClient();
             m_client = new TcpClient();
             m_client.Connect(ipAddress, port);
             m_thread = new Thread(Recv);
@@ -29,6 +39,7 @@ namespace YMTCORE
 
         private void Recv()
         {
+            Log("ClientRECV Start");
             try
             {
                 while (true)
@@ -37,38 +48,18 @@ namespace YMTCORE
                     if (m_client.GetStream().Read(buffer, 0, buffer.Length) != Packet.PACKET_SIZE) throw new Exception();
                     Packet packet = buffer;
 
+                    if (packet == null) throw new Exception();
+
                     switch (packet.Data[0])
                     {
-                        case "hi":
-                            lock (m_lock)
-                            {
-                                m_server_client_counter.Add(packet.Data[1]);
-                            }
-                            break;
-                        case "bye":
-                            lock (m_lock)
-                            {
-                                m_server_client_counter.Remove(packet.Data[1]);
-                            }
-                            break;
-                        case nameof(CMD_Play):
-                            RECV_CMD_Play(packet);
-                            break;
-                        case nameof(CMD_AddList):
+                        case Server.CMD_ADDLIST:
                             RECV_CMD_AddList(packet);
                             break;
-                        default:
-                            lock (m_lock)
-                            {
-                                if (m_packets.ContainsKey(packet.Created))
-                                {
-                                    m_packets[packet.Created].Add(packet);
-                                }
-                                else
-                                {
-                                    m_packets.Add(packet.Created, new List<Packet>(new Packet[] { packet }));
-                                }
-                            }
+                        case Server.CMD_PLAY:
+                            RECV_CMD_Play(packet);
+                            break;
+                        case Server.CMD_SKIP:
+                            RECV_CMD_Skip(packet);
                             break;
                     }
                 }
@@ -77,6 +68,7 @@ namespace YMTCORE
             {
 
             }
+            Log("ClientRECV Stop");
         }
 
         public void SendMessage(Packet packet)
@@ -85,86 +77,57 @@ namespace YMTCORE
             m_client.GetStream().Write(data, 0, data.Length);
         }
 
-        private void CMD_Play()
+        private void RECV_CMD_Skip(Packet packet)
         {
-            //라디오 재생
+            //확인
+        }
+
+        public void SEND_CMD_Skip(uint count = 0)
+        {
+            SendMessage(new Packet(Server.CMD_SKIP, count.ToString()));
+        }
+
+        private void MusicEnd(YoutubePlayer obj)
+        {
+            throw new NotImplementedException();
         }
 
         private void RECV_CMD_Play(Packet packet)
         {
-            CMD_Play();
-            SendMessage(new Packet(m_client, packet));
+            if (packet.Data.Length != 3) return;
+            var fire_time = DateTime.Parse(packet.Data[2]);
+            var url = packet.Data[1];
+
+            //시간 동기화
+            Task.Run(() =>
+            {
+                var interval = fire_time - DateTime.UtcNow;
+
+                if (interval.Ticks >= 0)
+                {
+                    Task.Delay(interval);
+                }
+
+                m_player.Play(url);
+
+                interval = DateTime.UtcNow - fire_time;
+                m_player.Seek(interval.Duration());
+            });
         }
 
         public void SEND_CMD_Play()
         {
-            DateTime dateTime = DateTime.Now;
-
-            {
-                var packet = new Packet(m_client, nameof(CMD_Play));
-                dateTime = packet.Created;
-                SendMessage(packet);
-            }
-
-            WaitAll(dateTime);
-
-            CMD_Play();
-        }
-
-        private void CMD_AddList(string direct_url)
-        {
-            //라디오에 넣기
+            SendMessage(new Packet(Server.CMD_PLAY));
         }
 
         private void RECV_CMD_AddList(Packet packet)
         {
-            CMD_AddList(packet.Data[1]);
-            SendMessage(new Packet(m_client, packet));
+            //누군가 플레이리스트에 추가함
         }
 
         public void SEND_CMD_AddList(string youtube_url)
         {
-            string direct_url = null;
-            DateTime dateTime = DateTime.Now;
-
-            {
-                var streamManifest = m_youtube.Videos.Streams.GetManifestAsync(youtube_url).Result;
-                var audioStreamInfo = streamManifest.GetAudioOnlyStreams().GetWithHighestBitrate();
-                direct_url = audioStreamInfo.Url;
-            }
-
-            if (direct_url == null) throw new Exception();
-
-            {
-                var packet = new Packet(m_client,nameof(CMD_AddList), direct_url);
-                dateTime = packet.Created;
-                SendMessage(packet);
-            }
-
-            WaitAll(dateTime);
-
-            CMD_AddList(direct_url);
-        }
-
-        private void WaitAll(DateTime dateTime)
-        {
-            while (true)
-            {
-                lock (m_lock)
-                {
-                    if(m_packets.ContainsKey(dateTime))
-                    {
-                        //서버에 있는 사람들중 존재하는 사람의 패킷만 일단 골라냄 없는 사람을 대기할순 없으니까
-                        var r = from packet in m_packets[dateTime] where m_server_client_counter.Contains(packet.IP) select packet;
-                        if(r != null && r.Count() == m_server_client_counter.Count)
-                        {
-                            //모두 응답을 받음
-                            return;
-                        }
-                    }
-                }
-                Thread.Sleep(100);
-            }
+            SendMessage(new Packet(Server.CMD_ADDLIST, youtube_url));
         }
 
         public void Close()
