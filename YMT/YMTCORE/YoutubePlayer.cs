@@ -13,6 +13,7 @@ namespace YMTCORE
     public class YoutubePlayer : IDisposable
     {
         private readonly YoutubeClient _youtubeClient;
+        private object m_lock = new object();
         private IWavePlayer _wavePlayer;
         private MediaFoundationReader _mediaReader;
         private Action<YoutubePlayer> ExOnPlaybackStopped;
@@ -30,18 +31,24 @@ namespace YMTCORE
                 Stop();
             }
 
-            _wavePlayer = new WaveOutEvent();
-            _mediaReader = new MediaFoundationReader(videoUrl);
-            _wavePlayer.Init(_mediaReader);
-            _wavePlayer.PlaybackStopped += OnPlaybackStopped;
-            _wavePlayer.Play();
+            lock (m_lock)
+            {
+                _wavePlayer = new WaveOutEvent();
+                _mediaReader = new MediaFoundationReader(videoUrl);
+                _wavePlayer.Init(_mediaReader);
+                _wavePlayer.PlaybackStopped += OnPlaybackStopped;
+                _wavePlayer.Play();
+            }            
         }
 
         public void Stop()
         {
-            _wavePlayer?.Stop();
-            _mediaReader?.Dispose();
-            _wavePlayer?.Dispose();
+            lock(m_lock)
+            {
+                _wavePlayer?.Stop();
+                _mediaReader?.Dispose();
+                _wavePlayer?.Dispose();
+            }
 
             ExOnPlaybackStopped(this);
         }
@@ -58,7 +65,10 @@ namespace YMTCORE
 
         public void Seek(TimeSpan interval)
         {
-            _mediaReader.Position = _mediaReader.WaveFormat.AverageBytesPerSecond * (int)interval.TotalSeconds;
+            lock (m_lock)
+            {
+                _mediaReader.Position = _mediaReader.WaveFormat.AverageBytesPerSecond * (int)interval.TotalSeconds;
+            }
         }
     }
 }

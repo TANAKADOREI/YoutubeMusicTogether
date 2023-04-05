@@ -32,6 +32,7 @@ namespace YMTCORE
             this.Log = Log;
             m_youtube = new YoutubeClient();
             m_client = new TcpClient();
+            m_client.SendBufferSize = m_client.ReceiveBufferSize = Packet.PACKET_SIZE;
             m_client.Connect(ipAddress, port);
             m_thread = new Thread(Recv);
             m_thread.Start();
@@ -45,7 +46,7 @@ namespace YMTCORE
                 while (true)
                 {
                     var buffer = Packet.NewRawPacket;
-                    if (m_client.GetStream().Read(buffer, 0, buffer.Length) != Packet.PACKET_SIZE) throw new Exception();
+                    if (m_client.Client.Receive(buffer) != Packet.PACKET_SIZE) return;
                     Packet packet = buffer;
 
                     if (packet == null) throw new Exception();
@@ -61,12 +62,15 @@ namespace YMTCORE
                         case Server.CMD_SKIP:
                             RECV_CMD_Skip(packet);
                             break;
+                        case Server.CMD_SHOWLIST:
+                            RECV_CMD_ShowList(packet);
+                            break;
                     }
                 }
             }
             catch (Exception e)
             {
-
+                Log(e.Message);
             }
             Log("ClientRECV Stop");
         }
@@ -74,14 +78,39 @@ namespace YMTCORE
         public void SendMessage(Packet packet)
         {
             byte[] data = packet;
-            m_client.GetStream().Write(data, 0, data.Length);
+            m_client.Client.Send(data,SocketFlags.None);
+        }
+
+        private void RECV_CMD_ShowList(Packet packet)
+        {
+            StringBuilder builder= new StringBuilder();
+            if(packet.Data.Length > 1)
+            {
+                for(int i = 1; i<packet.Data.Length; i++)
+                {
+                    builder.Append(i);
+                    builder.Append(':');
+                    builder.Append(packet.Data[i]);
+                    builder.AppendLine();
+                }
+            }
+
+            Log(builder.ToString());
+        }
+
+        public void SEND_CMD_ShowList()
+        {
+            SendMessage(new Packet(Server.CMD_SHOWLIST));
         }
 
         private void RECV_CMD_Skip(Packet packet)
         {
             //확인
+            m_player.Stop();
+            SEND_CMD_Play();
         }
 
+        //0이 현재 음악 스킵
         public void SEND_CMD_Skip(uint count = 0)
         {
             SendMessage(new Packet(Server.CMD_SKIP, count.ToString()));
@@ -89,7 +118,7 @@ namespace YMTCORE
 
         private void MusicEnd(YoutubePlayer obj)
         {
-            throw new NotImplementedException();
+            SEND_CMD_Play();
         }
 
         private void RECV_CMD_Play(Packet packet)

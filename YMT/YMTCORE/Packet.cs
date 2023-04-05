@@ -23,6 +23,8 @@ namespace YMTCORE
         public DateTime Created;
         public string[] Data;
 
+        public Packet() { }
+
         /// <summary>
         /// 요청 패킷 생성용
         /// </summary>
@@ -58,7 +60,7 @@ namespace YMTCORE
             var temp = Encoding.UTF8.GetBytes((string)packet);
             if (temp.Length >= PACKET_SIZE) throw new Exception();
             var result = NewRawPacket;
-            Array.Copy(result, temp, temp.Length);
+            Array.Copy(temp, result, temp.Length);
             return result;
         }
 

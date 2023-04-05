@@ -6,6 +6,7 @@ using YoutubeExplode;
 using YoutubeExplode.Common;
 using YoutubeExplode.Videos.Streams;
 using NAudio.Dmo;
+using AngleSharp.Dom;
 
 namespace YMTCORE
 {
@@ -17,8 +18,9 @@ namespace YMTCORE
         private Dictionary<string, TcpClient> m_clients = new Dictionary<string, TcpClient>();
 
         private object m_playlist_lock = new object();
-        private List<string> m_playlist = new List<string>();
-        private readonly YoutubeClient m_youtube;
+        //<title,url>
+        private List<Tuple<string, string>> m_playlist = new List<Tuple<string, string>>();
+        private readonly YoutubeClient m_youtube = new YoutubeClient();
         private Action<string> Log;
         private Thread m_thread;
 
@@ -34,12 +36,14 @@ namespace YMTCORE
         {
             try
             {
+                m_listener.Server.ReceiveBufferSize = m_listener.Server.SendBufferSize = Packet.PACKET_SIZE;
                 m_listener.Start();
                 Log("Start Server");
 
                 while (true)
                 {
                     var client = m_listener.AcceptTcpClient();
+                    client.ReceiveBufferSize = client.SendBufferSize = Packet.PACKET_SIZE;
                     ThreadPool.QueueUserWorkItem(HandleClient, client);
                 }
             }
@@ -77,13 +81,21 @@ namespace YMTCORE
 
             Console.WriteLine("connected client:" + clientId);
 
-            using (var stream = client.GetStream())
+
+            try
             {
-                byte[] buffer = Packet.NewRawPacket;
-                while (stream.Read(buffer, 0, buffer.Length) != buffer.Length)
+                while (true)
                 {
-                    MainProc(buffer);
+                    byte[] buffer = Packet.NewRawPacket;
+                    if (client.Client.Receive(buffer) == buffer.Length)
+                    {
+                        MainProc(buffer);
+                    }
                 }
+            }
+            catch (Exception e)
+            {
+                Log(e.ToString());
             }
 
             Console.WriteLine("disconected client:" + clientId);
@@ -93,9 +105,10 @@ namespace YMTCORE
             }
         }
 
-        public const string CMD_ADDLIST = "AddList";
-        public const string CMD_PLAY = "Play";
-        public const string CMD_SKIP = "Skip";
+        public const string CMD_ADDLIST = "ADDLIST";
+        public const string CMD_PLAY = "PLAY";
+        public const string CMD_SKIP = "SKIP";
+        public const string CMD_SHOWLIST = "SHOWLIST";
 
         private void MainProc(Packet packet)
         {
@@ -111,97 +124,143 @@ namespace YMTCORE
                 case CMD_SKIP:
                     if (ProcSkip(packet)) SendAll(new Packet(packet, CMD_SKIP));
                     break;
+                case CMD_SHOWLIST:
+                    ProcShowList(packet);
+                    break;
             }
+        }
+
+        private void ProcShowList(Packet packet)
+        {
+            List<string> list = new List<string>();
+            list.Add(CMD_SHOWLIST);
+            lock (m_playlist_lock)
+            {
+                for (int i = 0; i < 10; i++)
+                {
+                    if (m_playlist.Count <= i) break;
+                    list.Add(m_playlist[i].Item1);
+                }
+            }
+
+            SendAll(new Packet(packet, list.ToArray()));
         }
 
         private bool ProcSkip(Packet packet)
         {
-            if (packet.Data.Length != 2) return false;
-            uint count = uint.Parse(packet.Data[1]);
-            lock (m_playlist_lock)
+            try
             {
-                for (int i = 0; i < count; i++)
+                if (packet.Data.Length != 2) return false;
+                uint count = uint.Parse(packet.Data[1]);
+                lock (m_playlist_lock)
                 {
-                    if (m_playlist.Count == 0) break;
-                    m_playlist.RemoveAt(0);
+                    for (int i = 0; i < count; i++)
+                    {
+                        if (m_playlist.Count == 0) break;
+                        m_playlist.RemoveAt(0);
+                    }
                 }
+                return true;
             }
-            return true;
+            catch (Exception e)
+            {
+                Log(e.Message);
+                return false;
+            }
         }
 
         private void ProcPlay(Packet packet)
         {
-            string url = null;
-            lock (m_playlist_lock)
+            try
             {
-                if (m_playlist.Count == 0)
+                string url = null;
+                lock (m_playlist_lock)
                 {
-                    url = null;
+                    if (m_playlist.Count == 0)
+                    {
+                        url = null;
+                    }
+                    else
+                    {
+                        url = m_playlist[0].Item2;
+                        //m_playlist.RemoveAt(0);
+                    }
+                }
+                if (url == null)
+                {
+                    SendAll(new Packet(packet, CMD_PLAY, "null"));
                 }
                 else
                 {
-                    url = m_playlist[0];
-                    m_playlist.RemoveAt(0);
+                    SendAll(new Packet(packet, CMD_PLAY, url, DateTime.UtcNow.AddSeconds(1).ToString()));
                 }
             }
-            if (url == null)
+            catch (Exception e)
             {
-                SendAll(new Packet(packet, CMD_PLAY, "null"));
-            }
-            else
-            {
-                SendAll(new Packet(packet, CMD_PLAY, url, DateTime.UtcNow.AddSeconds(1).ToString()));
+                Log(e.Message);
             }
         }
 
         private bool ProcAddList(Packet packet)
         {
-            if (packet.Data.Length != 2) return false;
-
+            try
             {
-                string youtube_url = packet.Data[1];
-                string[] direct_urls = null;
-                DateTime dateTime = DateTime.Now;
+                if (packet.Data.Length != 2) return false;
 
                 {
-                    try
-                    {
-                        var streamManifest = m_youtube.Videos.Streams.GetManifestAsync(youtube_url).Result;
-                        var audioStreamInfo = streamManifest.GetAudioOnlyStreams().GetWithHighestBitrate();
-                        direct_urls = new string[] { audioStreamInfo.Url };
-                    }
-                    catch
-                    {
-                        direct_urls = null;
-                    }
-                }
+                    string youtube_url = packet.Data[1];
+                    List<Tuple<string, string>> direct_urls = new List<Tuple<string, string>>();
+                    DateTime dateTime = DateTime.Now;
 
-                if (direct_urls == null)
-                {
-                    try
                     {
-                        var vs = m_youtube.Playlists.GetVideosAsync(youtube_url);
-                        var temp = from mani in from url in vs.GetAwaiter().GetResult().Select(_ => _.Url) select m_youtube.Videos.Streams.GetManifestAsync(url).Result select mani.GetAudioOnlyStreams().GetWithHighestBitrate().Url;
-                        direct_urls = temp.ToArray();
+                        try
+                        {
+                            var stream_mani = m_youtube.Videos.Streams.GetManifestAsync(youtube_url).Result;
+                            var stream_info = stream_mani.GetAudioOnlyStreams().GetWithHighestBitrate();
+                            direct_urls.Add(new Tuple<string, string>(m_youtube.Videos.GetAsync(youtube_url).Result.Author.ChannelTitle, stream_info.Url));
+                        }
+                        catch
+                        {
+                            direct_urls.Clear();
+                        }
                     }
-                    catch
-                    {
-                        direct_urls = null;
-                    }
-                }
 
-                if (direct_urls != null)
-                {
-                    lock (m_playlist_lock)
+                    if (direct_urls.Count == 0)
                     {
-                        m_playlist.AddRange(direct_urls);
+                        try
+                        {
+                            var vs = m_youtube.Playlists.GetVideosAsync(youtube_url);
+                            foreach (var url in vs.GetAwaiter().GetResult().Select(_ => _.Url))
+                            {
+                                string direct_url = m_youtube.Videos.Streams.GetManifestAsync(url).Result.GetAudioOnlyStreams().GetWithHighestBitrate().Url;
+                                string title = m_youtube.Videos.GetAsync(url).Result.Author.ChannelTitle;
+                                direct_urls.Add(new Tuple<string, string>(title, direct_url));
+                            }
+                        }
+                        catch
+                        {
+                            direct_urls.Clear();
+                        }
                     }
-                    return true;
+
+                    if (direct_urls.Count() != 0)
+                    {
+                        lock (m_playlist_lock)
+                        {
+                            m_playlist.AddRange(direct_urls);
+                        }
+                        return true;
+                    }
+                    else
+                    {
+                        return false;
+                    }
                 }
-                else
-                {
-                    return false;
-                }
+            }
+            catch (Exception e)
+            {
+                Log(e.Message);
+                return false;
             }
         }
 
@@ -210,7 +269,7 @@ namespace YMTCORE
             IEnumerable<Task> tasks = null;
             lock (m_clients_lock)
             {
-                tasks = from c in m_clients select c.Value.GetStream().WriteAsync(buffer).AsTask();
+                tasks = from c in m_clients select c.Value.Client.SendAsync(buffer, SocketFlags.None);
             }
 
             if (tasks == null) return;
