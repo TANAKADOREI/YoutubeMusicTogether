@@ -107,7 +107,6 @@ namespace YMTCORE
         {
             //확인
             m_player.Stop();
-            SEND_CMD_Play();
         }
 
         //0이 현재 음악 스킵
