@@ -111,13 +111,14 @@ namespace YMTCORE
         }
 
         //0이 현재 음악 스킵
-        public void SEND_CMD_Skip(uint count = 0)
+        public void SEND_CMD_Skip(uint count = 1)
         {
             SendMessage(new Packet(Server.CMD_SKIP, count.ToString()));
         }
 
         private void MusicEnd(YoutubePlayer obj)
         {
+            SEND_CMD_Skip();
             SEND_CMD_Play();
         }
 
