@@ -12,50 +12,56 @@ namespace YMTCORE
 {
     public class YoutubePlayer : IDisposable
     {
-        private readonly YoutubeClient _youtubeClient;
         private object m_lock = new object();
-        private IWavePlayer _wavePlayer;
-        private MediaFoundationReader _mediaReader;
+        private IWavePlayer m_player;
+        private MediaFoundationReader m_player_reader;
         private Action<YoutubePlayer> ExOnPlaybackStopped;
 
         public YoutubePlayer(Action<YoutubePlayer> ExOnPlaybackStopped)
         {
-            _youtubeClient = new YoutubeClient();
             this.ExOnPlaybackStopped = ExOnPlaybackStopped;
         }
 
         public void Play(string videoUrl)
         {
-            if (_wavePlayer != null)
+            IWavePlayer temp = null;
+
+            lock (m_lock)
+            {
+                temp = m_player;
+            }
+
+            if (m_player != null)
             {
                 Stop();
             }
 
             lock (m_lock)
             {
-                _wavePlayer = new WaveOutEvent();
-                _mediaReader = new MediaFoundationReader(videoUrl);
-                _wavePlayer.Init(_mediaReader);
-                _wavePlayer.PlaybackStopped += OnPlaybackStopped;
-                _wavePlayer.Play();
-            }            
+                m_player = new WaveOutEvent();
+                m_player_reader = new MediaFoundationReader(videoUrl);
+                m_player.Init(m_player_reader);
+                m_player.PlaybackStopped += OnPlaybackStopped;
+                m_player.Play();
+            }
         }
 
         public void Stop()
         {
-            lock(m_lock)
+            lock (m_lock)
             {
-                _wavePlayer?.Stop();
-                _mediaReader?.Dispose();
-                _wavePlayer?.Dispose();
+                if (m_player == null) return;
+                m_player?.Stop();
+                m_player_reader?.Dispose();
+                m_player?.Dispose();
+                m_player = null;
+                m_player_reader = null;
             }
-
-            ExOnPlaybackStopped(this);
         }
 
         private void OnPlaybackStopped(object sender, StoppedEventArgs e)
         {
-            Stop();
+            ExOnPlaybackStopped(this);
         }
 
         public void Dispose()
@@ -67,7 +73,7 @@ namespace YMTCORE
         {
             lock (m_lock)
             {
-                _mediaReader.Position = _mediaReader.WaveFormat.AverageBytesPerSecond * (int)interval.TotalSeconds;
+                m_player_reader.Position = m_player_reader.WaveFormat.AverageBytesPerSecond * (int)interval.TotalSeconds;
             }
         }
     }

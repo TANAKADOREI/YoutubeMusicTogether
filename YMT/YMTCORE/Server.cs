@@ -122,7 +122,7 @@ namespace YMTCORE
                     ProcPlay(packet);
                     break;
                 case CMD_SKIP:
-                    if (ProcSkip(packet)) SendAll(new Packet(packet, CMD_SKIP));
+                    ProcSkip(packet);
                     break;
                 case CMD_SHOWLIST:
                     ProcShowList(packet);
@@ -146,27 +146,19 @@ namespace YMTCORE
             SendAll(new Packet(packet, list.ToArray()));
         }
 
-        private bool ProcSkip(Packet packet)
+        private void ProcSkip(Packet packet)
         {
-            try
+            if (packet.Data.Length != 2) return;
+            uint count = uint.Parse(packet.Data[1]);
+            lock (m_playlist_lock)
             {
-                if (packet.Data.Length != 2) return false;
-                uint count = uint.Parse(packet.Data[1]);
-                lock (m_playlist_lock)
+                for (int i = 0; i < count; i++)
                 {
-                    for (int i = 0; i < count; i++)
-                    {
-                        if (m_playlist.Count == 0) break;
-                        m_playlist.RemoveAt(0);
-                    }
+                    if (m_playlist.Count == 0) break;
+                    m_playlist.RemoveAt(0);
                 }
-                return true;
             }
-            catch (Exception e)
-            {
-                Log(e.Message);
-                return false;
-            }
+            SendAll(new Packet(packet, CMD_SKIP));
         }
 
         private void ProcPlay(Packet packet)

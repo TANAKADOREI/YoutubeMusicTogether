@@ -45,10 +45,12 @@ namespace YMT
 
             while (true)
             {
+                Console.WriteLine("===========Commands...============");
                 Console.WriteLine($"{Server.CMD_ADDLIST}");
                 Console.WriteLine($"{Server.CMD_PLAY}");
                 Console.WriteLine($"{Server.CMD_SKIP}");
                 Console.WriteLine($"{Server.CMD_SHOWLIST}");
+                Console.WriteLine("==================================\n>>");
                 switch(Console.ReadLine().ToUpper())
                 {
                     case Server.CMD_ADDLIST:

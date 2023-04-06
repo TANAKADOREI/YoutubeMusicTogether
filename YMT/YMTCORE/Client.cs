@@ -106,10 +106,9 @@ namespace YMTCORE
         private void RECV_CMD_Skip(Packet packet)
         {
             //확인
-            m_player.Stop();
+            m_player.Stop();//스탑후 MusicEnd콜백을 받음
         }
 
-        //0이 현재 음악 스킵
         public void SEND_CMD_Skip(uint count = 1)
         {
             SendMessage(new Packet(Server.CMD_SKIP, count.ToString()));
@@ -117,13 +116,16 @@ namespace YMTCORE
 
         private void MusicEnd(YoutubePlayer obj)
         {
-            SEND_CMD_Skip();
             SEND_CMD_Play();
         }
 
         private void RECV_CMD_Play(Packet packet)
         {
-            if (packet.Data.Length != 3) return;
+            if (packet.Data.Length != 3)
+            {
+                m_player.Stop();
+                return;
+            }
             var fire_time = DateTime.Parse(packet.Data[2]);
             var url = packet.Data[1];
 
