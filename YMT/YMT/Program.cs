@@ -35,7 +35,7 @@ namespace YMT
             try
             {
                 Console.WriteLine("ip : ");
-                client = new Client(Console.WriteLine, Console.ReadLine(), port);
+                client = new Client(Log, Console.ReadLine(), port);
             }
             catch(Exception e)
             {
@@ -67,7 +67,13 @@ namespace YMT
                         client.SEND_CMD_ShowList();
                         break;
                 }
+                Console.Clear();
             }
+        }
+
+        private static void Log(string obj)
+        {
+            Console.WriteLine($"======================<Server>======================\n{obj}======================<Server>======================");
         }
 
         private static void ProcServer()

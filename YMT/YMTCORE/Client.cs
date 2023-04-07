@@ -86,13 +86,16 @@ namespace YMTCORE
             StringBuilder builder= new StringBuilder();
             if(packet.Data.Length > 1)
             {
-                for(int i = 1; i<packet.Data.Length; i++)
+                builder.AppendLine("======<playlist>======");
+                for (int i = 1; i<packet.Data.Length; i++)
                 {
                     builder.Append(i);
                     builder.Append(':');
                     builder.Append(packet.Data[i]);
                     builder.AppendLine();
                 }
+                builder.AppendLine("...");
+                builder.AppendLine("======================");
             }
 
             Log(builder.ToString());
@@ -107,6 +110,7 @@ namespace YMTCORE
         {
             //확인
             m_player.Stop();//스탑후 MusicEnd콜백을 받음
+            Log("skiped...");
         }
 
         public void SEND_CMD_Skip(uint count = 1)
@@ -153,7 +157,14 @@ namespace YMTCORE
 
         private void RECV_CMD_AddList(Packet packet)
         {
-            //누군가 플레이리스트에 추가함
+            try
+            {
+                Log(packet.Data[1]);
+            }
+            catch(Exception e)
+            {
+                Log(e.Message);
+            }
         }
 
         public void SEND_CMD_AddList(string youtube_url)

@@ -116,7 +116,7 @@ namespace YMTCORE
             switch (packet.Data[0])
             {
                 case CMD_ADDLIST:
-                    if (ProcAddList(packet)) SendAll(new Packet(packet, CMD_ADDLIST));
+                    ProcAddList(packet);
                     break;
                 case CMD_PLAY:
                     ProcPlay(packet);
@@ -136,10 +136,10 @@ namespace YMTCORE
             list.Add(CMD_SHOWLIST);
             lock (m_playlist_lock)
             {
-                for (int i = 0; i < 10; i++)
+                for (int i = 0; i < 70; i++)
                 {
                     if (m_playlist.Count <= i) break;
-                    list.Add(m_playlist[i].Item1);
+                    list.Add(m_playlist[i].Item1.Trim().Substring(0,100).Trim());
                 }
             }
 
@@ -193,31 +193,38 @@ namespace YMTCORE
             }
         }
 
-        private bool ProcAddList(Packet packet)
+        private void ProcAddList(Packet packet)
         {
             try
             {
-                if (packet.Data.Length != 2) return false;
-
+                if (packet.Data.Length != 2) return;
                 {
                     string youtube_url = packet.Data[1];
                     List<Tuple<string, string>> direct_urls = new List<Tuple<string, string>>();
                     DateTime dateTime = DateTime.Now;
 
+                    string GetVideoTitle(YoutubeExplode.Videos.Video v)
+                    {
+                        return $"{v.Author.ChannelUrl}:{v.Title}";
+                    }
+
+                    bool TryParseVideo()
                     {
                         try
                         {
                             var stream_mani = m_youtube.Videos.Streams.GetManifestAsync(youtube_url).Result;
                             var stream_info = stream_mani.GetAudioOnlyStreams().GetWithHighestBitrate();
-                            direct_urls.Add(new Tuple<string, string>(m_youtube.Videos.GetAsync(youtube_url).Result.Author.ChannelTitle, stream_info.Url));
+                            direct_urls.Add(new Tuple<string, string>(GetVideoTitle(m_youtube.Videos.GetAsync(youtube_url).Result), stream_info.Url));
+                            return true;
                         }
                         catch
                         {
                             direct_urls.Clear();
+                            return false;
                         }
                     }
 
-                    if (direct_urls.Count == 0)
+                    bool TryParsePlaylist()
                     {
                         try
                         {
@@ -225,34 +232,48 @@ namespace YMTCORE
                             foreach (var url in vs.GetAwaiter().GetResult().Select(_ => _.Url))
                             {
                                 string direct_url = m_youtube.Videos.Streams.GetManifestAsync(url).Result.GetAudioOnlyStreams().GetWithHighestBitrate().Url;
-                                string title = m_youtube.Videos.GetAsync(url).Result.Author.ChannelTitle;
+                                string title = GetVideoTitle(m_youtube.Videos.GetAsync(url).Result);
                                 direct_urls.Add(new Tuple<string, string>(title, direct_url));
                             }
+                            return true;
                         }
                         catch
                         {
                             direct_urls.Clear();
+                            return false;
                         }
                     }
 
-                    if (direct_urls.Count() != 0)
+                    void Proc()
                     {
-                        lock (m_playlist_lock)
+                        if (!TryParseVideo())
                         {
-                            m_playlist.AddRange(direct_urls);
+                            if (!TryParsePlaylist())
+                            {
+                                //유튜브 링크가 아님
+                                SendAll(new Packet(packet,CMD_ADDLIST, "Not a URL to YouTube"));
+                            }
                         }
-                        return true;
+
+                        //유튜브 링크
+                        if (direct_urls.Count() != 0)
+                        {
+                            lock (m_playlist_lock)
+                            {
+                                m_playlist.AddRange(direct_urls);
+                            }
+                        }
+
+                        SendAll(new Packet(packet, CMD_ADDLIST, $"Added({direct_urls.Count}) to Queue"));
                     }
-                    else
-                    {
-                        return false;
-                    }
+
+                    Task.Run(Proc);
                 }
             }
             catch (Exception e)
             {
                 Log(e.Message);
-                return false;
+                SendAll(new Packet(packet, CMD_ADDLIST, "Not a URL to YouTube"));
             }
         }
 
