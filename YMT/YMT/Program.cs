@@ -4,6 +4,8 @@ namespace YMT
 {
     internal class Program
     {
+        static object m_lock = new object();
+
         static void Main(string[] args)
         {
             Console.WriteLine("Server : S, Client : C");
@@ -31,13 +33,13 @@ namespace YMT
 
             Client client = null;
 
-            re_connect:
+        re_connect:
             try
             {
                 Console.WriteLine("ip : ");
                 client = new Client(Log, Console.ReadLine(), port);
             }
-            catch(Exception e)
+            catch (Exception e)
             {
                 Console.WriteLine("404 error");
                 goto re_connect;
@@ -45,17 +47,24 @@ namespace YMT
 
             while (true)
             {
-                Console.WriteLine("===========Commands...============");
-                Console.WriteLine($"{Server.CMD_ADDLIST}");
-                Console.WriteLine($"{Server.CMD_PLAY}");
-                Console.WriteLine($"{Server.CMD_SKIP}");
-                Console.WriteLine($"{Server.CMD_SHOWLIST}");
-                Console.WriteLine("==================================\n>>");
-                switch(Console.ReadLine().ToUpper())
+                lock (m_lock)
+                {
+                    Console.WriteLine("=======================Commands...========================");
+                    Console.WriteLine($"{Server.CMD_ADDLIST}");
+                    Console.WriteLine($"{Server.CMD_PLAY}");
+                    Console.WriteLine($"{Server.CMD_SKIP}");
+                    Console.WriteLine($"{Server.CMD_SHOWLIST}");
+                    Console.WriteLine($"{Server.CMD_SHUFFLE}");
+                    Console.WriteLine("==========================================================");
+                    Console.WriteLine(@"https://github.com/TANAKADOREI/YoutubeMusicTogether");
+                    Console.WriteLine("==========================================================\n>>");
+                }
+                    
+                switch (Console.ReadLine().ToUpper())
                 {
                     case Server.CMD_ADDLIST:
                         Console.WriteLine("url:");
-                        client.SEND_CMD_AddList( Console.ReadLine() );
+                        client.SEND_CMD_AddList(Console.ReadLine());
                         break;
                     case Server.CMD_PLAY:
                         client.SEND_CMD_Play();
@@ -66,6 +75,9 @@ namespace YMT
                     case Server.CMD_SHOWLIST:
                         client.SEND_CMD_ShowList();
                         break;
+                    case Server.CMD_SHUFFLE:
+                        client.SEND_CMD_Shuffle();
+                        break;
                 }
                 Console.Clear();
             }
@@ -73,7 +85,10 @@ namespace YMT
 
         private static void Log(string obj)
         {
-            Console.WriteLine($"======================<Server>======================\n{obj}======================<Server>======================");
+            lock (m_lock)
+            {
+                Console.WriteLine($"=====<Server>=====\n{obj}\n==================");
+            }
         }
 
         private static void ProcServer()

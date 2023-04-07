@@ -20,6 +20,7 @@ namespace YMTCORE
         private object m_playlist_lock = new object();
         //<title,url>
         private List<Tuple<string, string>> m_playlist = new List<Tuple<string, string>>();
+        private Random m_playlist_rand = new Random();
         private readonly YoutubeClient m_youtube = new YoutubeClient();
         private Action<string> Log;
         private Thread m_thread;
@@ -109,6 +110,7 @@ namespace YMTCORE
         public const string CMD_PLAY = "PLAY";
         public const string CMD_SKIP = "SKIP";
         public const string CMD_SHOWLIST = "SHOWLIST";
+        public const string CMD_SHUFFLE = "SHUFFLE";
 
         private void MainProc(Packet packet)
         {
@@ -127,8 +129,46 @@ namespace YMTCORE
                 case CMD_SHOWLIST:
                     ProcShowList(packet);
                     break;
+                case CMD_SHUFFLE:
+                    ProcShuffle(packet);
+                    break;
             }
         }
+
+        private void ProcShuffle(Packet packet)
+        {
+            try
+            {
+                void proc()
+                {
+                    try
+                    {
+                        lock (m_playlist_lock)
+                        {
+                            for (int i = 0; i < m_playlist.Count; i++)
+                            {
+                                int target_index = m_playlist_rand.Next(0, m_playlist.Count);
+                                var temp = m_playlist[i];
+                                m_playlist[i] = m_playlist[target_index];
+                                m_playlist[target_index] = temp;
+                            }
+                        }
+                    }
+                    catch (Exception e)
+                    {
+                        Log(e.Message);
+                    }
+                }
+
+                Task.Run(proc);
+            }
+            catch (Exception e)
+            {
+                Log(e.Message);
+            }
+        }
+
+        public const int TITLE_MAX_LENGTH = 50;
 
         private void ProcShowList(Packet packet)
         {
@@ -136,10 +176,12 @@ namespace YMTCORE
             list.Add(CMD_SHOWLIST);
             lock (m_playlist_lock)
             {
-                for (int i = 0; i < 70; i++)
+                list.Add(m_playlist.Count.ToString());
+                for (int i = 0; i < 50; i++)
                 {
                     if (m_playlist.Count <= i) break;
-                    list.Add(m_playlist[i].Item1.Trim().Substring(0,100).Trim());
+                    var temp = m_playlist[i].Item1.Trim();
+                    list.Add(temp.Substring(0, temp.Length >= TITLE_MAX_LENGTH ? TITLE_MAX_LENGTH : temp.Length).Trim());
                 }
             }
 
@@ -205,7 +247,7 @@ namespace YMTCORE
 
                     string GetVideoTitle(YoutubeExplode.Videos.Video v)
                     {
-                        return $"{v.Author.ChannelUrl}:{v.Title}";
+                        return $"{v.Author.ChannelTitle}:{v.Title}";
                     }
 
                     bool TryParseVideo()
@@ -251,7 +293,7 @@ namespace YMTCORE
                             if (!TryParsePlaylist())
                             {
                                 //유튜브 링크가 아님
-                                SendAll(new Packet(packet,CMD_ADDLIST, "Not a URL to YouTube"));
+                                SendAll(new Packet(packet, CMD_ADDLIST, "Not a URL to YouTube"));
                             }
                         }
 

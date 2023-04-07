@@ -19,7 +19,6 @@ namespace YMTCORE
 
     public class Client
     {
-        private readonly YoutubeClient m_youtube;
         private TcpClient m_client;
         private Thread m_thread;
         private Action<string> Log;
@@ -30,7 +29,6 @@ namespace YMTCORE
         {
             m_player = new YoutubePlayer(MusicEnd);
             this.Log = Log;
-            m_youtube = new YoutubeClient();
             m_client = new TcpClient();
             m_client.SendBufferSize = m_client.ReceiveBufferSize = Packet.PACKET_SIZE;
             m_client.Connect(ipAddress, port);
@@ -84,14 +82,15 @@ namespace YMTCORE
         private void RECV_CMD_ShowList(Packet packet)
         {
             StringBuilder builder= new StringBuilder();
-            if(packet.Data.Length > 1)
+            if(packet.Data.Length > 2)
             {
-                builder.AppendLine("======<playlist>======");
-                for (int i = 1; i<packet.Data.Length; i++)
+                builder.AppendLine($"======<playlist({packet.Data[1]})>======");
+                for (int i = 2; i<packet.Data.Length; i++)
                 {
-                    builder.Append(i);
+                    builder.Append(i-1);
                     builder.Append(':');
                     builder.Append(packet.Data[i]);
+                    if(packet.Data[i].Length == Server.TITLE_MAX_LENGTH) builder.Append("...");
                     builder.AppendLine();
                 }
                 builder.AppendLine("...");
@@ -99,6 +98,16 @@ namespace YMTCORE
             }
 
             Log(builder.ToString());
+        }
+
+        public void SEND_CMD_Shuffle()
+        {
+            SendMessage(new Packet(Server.CMD_SHUFFLE));
+        }
+
+        private void RECV_CMD_Shuffle(Packet packet)
+        {
+            //pass
         }
 
         public void SEND_CMD_ShowList()
