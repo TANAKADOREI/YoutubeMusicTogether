@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
 	<PropertyGroup>
 		<OutputType>Exe</OutputType>
@@ -7,13 +7,5 @@
 		<Nullable>enable</Nullable>
 		<BaseOutputPath>$(SolutionDir)Output\$(Configuration)</BaseOutputPath>
 	</PropertyGroup>
-
-	<ItemGroup>
-		<PackageReference Include="Octokit" Version="5.0.3" />
-	</ItemGroup>
-
-	<ItemGroup>
-		<ProjectReference Include="..\YMTCORE\YMTCORE.csproj" />
-	</ItemGroup>
 
 </Project>

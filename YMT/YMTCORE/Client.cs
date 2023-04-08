@@ -18,18 +18,16 @@ namespace YMTCORE
 
     }
 
-    public class Client
+    public class Client : IDisposable
     {
         private TcpClient m_client;
         private Thread m_thread;
-        private Action<string> Log;
 
         YoutubePlayer m_player;
 
-        public Client(Action<string> Log, string ipAddress, int port)
+        public Client(string ipAddress, int port)
         {
             m_player = new YoutubePlayer(MusicEnd);
-            this.Log = Log;
             m_client = new TcpClient();
             m_client.SendBufferSize = m_client.ReceiveBufferSize = Packet.PACKET_SIZE;
             m_client.Connect(ipAddress, port);
@@ -39,7 +37,7 @@ namespace YMTCORE
 
         private void Recv()
         {
-            Log("ClientRECV Start");
+            DebugLogger.SubLogger?.Invoke("ClientRECV Start");
             try
             {
                 while (true)
@@ -50,7 +48,7 @@ namespace YMTCORE
 
                     if (packet == null) throw new Exception();
 
-                    Debug.WriteLine($"Recv->{packet.Data[0]} : {new StackTrace()}");
+                    DebugLogger.Log($"Recv->{packet.Print()}");
 
                     switch (packet.Data[0])
                     {
@@ -59,9 +57,6 @@ namespace YMTCORE
                             break;
                         case Server.CMD_PLAY:
                             RECV_CMD_Play(packet);
-                            break;
-                        case Server.CMD_SKIP:
-                            RECV_CMD_Skip(packet);
                             break;
                         case Server.CMD_SHOWLIST:
                             RECV_CMD_ShowList(packet);
@@ -77,19 +72,19 @@ namespace YMTCORE
             }
             catch (Exception e)
             {
-                Log(e.Message);
+                DebugLogger.SubLogger?.Invoke(e.Message);
             }
-            Log("ClientRECV Stop");
+            DebugLogger.SubLogger?.Invoke("ClientRECV Stop");
         }
 
         private void RECV_CMD_CANCELED(Packet packet)
         {
-            Log(packet.Data[1]);
+            DebugLogger.SubLogger?.Invoke(packet.Data[1]);
         }
 
         public void SendMessage(Packet packet)
         {
-            Debug.WriteLine($"Send->{packet.Data[0]} : {new StackTrace()}");
+            DebugLogger.Log($"Send->{packet.Print()}");
             byte[] data = packet;
             m_client.Client.Send(data, SocketFlags.None);
         }
@@ -112,7 +107,7 @@ namespace YMTCORE
                 builder.AppendLine("======================");
             }
 
-            Log(builder.ToString());
+            DebugLogger.SubLogger?.Invoke(builder.ToString());
         }
 
         public void SEND_CMD_Shuffle()
@@ -130,42 +125,22 @@ namespace YMTCORE
             SendMessage(new Packet(Server.CMD_SHOWLIST));
         }
 
-        private void RECV_CMD_Skip(Packet packet)
-        {
-            //확인
-            if (m_player.IsReady())
-            {
-                SEND_CMD_Play();
-            }
-            else
-            {
-                m_player.Stop();
-            }
-            Log("skiped...");
-        }
-
         public void SEND_CMD_Skip(uint count = 1)
         {
-            SendMessage(new Packet(Server.CMD_SKIP, count.ToString()));
+            SendMessage(new Packet(Server.SEND_CMD_SKIP, count.ToString()));
         }
 
-        private void MusicEnd(YoutubePlayer obj, bool clear)
+        private void MusicEnd(YoutubePlayer obj, bool clear, string url)
         {
-            if (clear)
-            {
-                SEND_CMD_Skip();
-            }
-            else
-            {
-                SEND_CMD_Play();
-            }
+            SendMessage(new Packet(Server.SEND_CMD_MUSICEND, url));
         }
 
         private void RECV_CMD_Play(Packet packet)
         {
             if (packet.Data.Length != 3)
             {
-                m_player.Stop();
+                //null
+                m_player.Stop(true);//콜백을 하지 않음
                 return;
             }
 
@@ -185,13 +160,10 @@ namespace YMTCORE
                 if (!m_player.IsReady())
                 {
                     //플레이 도중
-                    m_player.Stop();
-                    return;
+                    m_player.Stop(true);
                 }
-                else
-                {
-                    m_player.Play(url);
-                }
+
+                m_player.Play(url);
 
                 interval = DateTime.UtcNow - fire_time;
                 m_player.Seek(interval.Duration());
@@ -207,11 +179,11 @@ namespace YMTCORE
         {
             try
             {
-                Log(packet.Data[1]);
+                DebugLogger.SubLogger?.Invoke(packet.Data[1]);
             }
             catch (Exception e)
             {
-                Log(e.Message);
+                DebugLogger.SubLogger?.Invoke(e.Message);
             }
         }
 
@@ -220,9 +192,12 @@ namespace YMTCORE
             SendMessage(new Packet(Server.CMD_ADDLIST, youtube_url));
         }
 
-        public void Close()
+        public void Dispose()
         {
+            m_player.Dispose();
             m_client.Close();
         }
+
+        public Action<bool> Volume => m_player.SetVolume;
     }
 }

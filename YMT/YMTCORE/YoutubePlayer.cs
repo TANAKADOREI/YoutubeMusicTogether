@@ -1,4 +1,5 @@
-﻿using NAudio.Wave;
+﻿using AngleSharp.Dom;
+using NAudio.Wave;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -16,10 +17,11 @@ namespace YMTCORE
         private object m_lock = new object();
         private IWavePlayer m_player;
         private MediaFoundationReader m_player_reader;
+        private string m_url;
         //<this, is clear>
-        private Action<YoutubePlayer, bool> ExOnPlaybackStopped;
+        private Action<YoutubePlayer, bool, string> ExOnPlaybackStopped;
 
-        public YoutubePlayer(Action<YoutubePlayer, bool> ExOnPlaybackStopped)
+        public YoutubePlayer(Action<YoutubePlayer, bool, string> ExOnPlaybackStopped)
         {
             this.ExOnPlaybackStopped = ExOnPlaybackStopped;
         }
@@ -34,6 +36,7 @@ namespace YMTCORE
                 }
                 m_player = new WaveOutEvent();
                 m_player_reader = new MediaFoundationReader(videoUrl);
+                m_url = videoUrl;
                 m_player.PlaybackStopped += M_player_PlaybackStopped;
                 m_player.Init(m_player_reader);
                 m_player.Play();
@@ -42,8 +45,12 @@ namespace YMTCORE
 
         private void M_player_PlaybackStopped(object? sender, StoppedEventArgs e)
         {
-            RawStop(true);
-            ExOnPlaybackStopped(this, true);
+            string url = m_url;
+            lock (m_lock)
+            {
+                RawStop(true);
+            }
+            ExOnPlaybackStopped(this, true, url);
         }
 
         public bool IsReady()
@@ -54,10 +61,25 @@ namespace YMTCORE
             }
         }
 
+        public void SetVolume(bool up)
+        {
+            lock (m_lock)
+            {
+                if (m_player != null)
+                {
+                    var vol = m_player.Volume + ((up) ? 0.1 : -0.1);
+                    if (vol <= 0) m_player.Volume = 0;
+                    else if (vol >= 1) m_player.Volume = 1;
+                    else throw null;
+                }
+            }
+        }
+
         private void RawStop(bool no_callback = false)
         {
             if (m_player == null) return;
 
+            //콜백 제거. 중복처리 방지
             m_player.PlaybackStopped -= M_player_PlaybackStopped;
             m_player?.Stop();
 
@@ -65,13 +87,15 @@ namespace YMTCORE
             {
                 bool clear = false;
                 clear = m_player_reader.Position >= m_player_reader.Length;
+                string url = m_url;
 
                 Task.Run(() =>
                 {
-                    ExOnPlaybackStopped(this, clear);
+                    ExOnPlaybackStopped(this, clear, url);
                 });
             }
 
+            m_url = null;
             m_player_reader?.Dispose();
             m_player?.Dispose();
 
@@ -79,17 +103,18 @@ namespace YMTCORE
             m_player_reader = null;
         }
 
-        public void Stop()
+        //노래가 진행될때 중지 하는 함수
+        public void Stop(bool no_MusicEndCallback)
         {
             lock (m_lock)
             {
-                RawStop();
+                RawStop(no_MusicEndCallback);
             }
         }
 
         public void Dispose()
         {
-            Stop();
+            Stop(true);
         }
 
         public void Seek(TimeSpan interval)

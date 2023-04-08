@@ -45,6 +45,11 @@ namespace YMTCORE
             Data = data;
         }
 
+        public string Print()
+        {
+            return JsonConvert.SerializeObject(this, Formatting.Indented);
+        }
+
         public static implicit operator string(Packet packet)
         {
             return JsonConvert.SerializeObject(packet,Formatting.None);

@@ -9,26 +9,32 @@ using NAudio.Dmo;
 using AngleSharp.Dom;
 using YoutubeExplode.Videos;
 using System.Collections.Generic;
+using System;
 
 namespace YMTCORE
 {
     public class Server
     {
+        private class Client
+        {
+            public TcpClient This = null;
+            public bool MusicEnd = false;
+        }
+
         private TcpListener m_listener;
 
         private object m_clients_lock = new object();
-        private Dictionary<string, TcpClient> m_clients = new Dictionary<string, TcpClient>();
+        private Dictionary<string, Client> m_clients = new Dictionary<string, Client>();
 
         private object m_playlist_lock = new object();
         //<title,url>
         private List<YVideoInfo> m_playlist = new List<YVideoInfo>();
         private Random m_playlist_rand = new Random();
-        private Action<string> Log;
+        private string m_playlist_now_play_url = null;
         private Thread m_thread;
 
-        public Server(int port, Action<string> Log)
+        public Server(int port)
         {
-            this.Log = Log;
             m_listener = new TcpListener(IPAddress.Any, port);
             m_thread = new Thread(Start);
             m_thread.Start();
@@ -40,7 +46,7 @@ namespace YMTCORE
             {
                 m_listener.Server.ReceiveBufferSize = m_listener.Server.SendBufferSize = Packet.PACKET_SIZE;
                 m_listener.Start();
-                Log("Start Server");
+                DebugLogger.Log("Start Server");
 
                 while (true)
                 {
@@ -51,10 +57,10 @@ namespace YMTCORE
             }
             catch (Exception ex)
             {
-                Log(ex.Message);
+                DebugLogger.Log(ex.Message);
             }
 
-            Log("Destroy Server");
+            DebugLogger.Log("Destroy Server");
         }
 
         public void Destroy()
@@ -63,8 +69,8 @@ namespace YMTCORE
             {
                 foreach (var clientId in m_clients)
                 {
-                    clientId.Value.Close();
-                    clientId.Value.Dispose();
+                    clientId.Value.This.Close();
+                    clientId.Value.This.Dispose();
                 }
             }
             m_listener.Stop();
@@ -78,7 +84,7 @@ namespace YMTCORE
 
             lock (m_clients_lock)
             {
-                m_clients.TryAdd(clientId, client);
+                m_clients.Add(clientId, new Client() { This = client });
             }
 
             Console.WriteLine("connected client:" + clientId);
@@ -91,13 +97,13 @@ namespace YMTCORE
                     byte[] buffer = Packet.NewRawPacket;
                     if (client.Client.Receive(buffer) == buffer.Length)
                     {
-                        MainProc(buffer);
+                        MainProc(clientId, buffer);
                     }
                 }
             }
             catch (Exception e)
             {
-                Log(e.ToString());
+                DebugLogger.Log(e.ToString());
             }
 
             Console.WriteLine("disconected client:" + clientId);
@@ -107,16 +113,21 @@ namespace YMTCORE
             }
         }
 
+        //서버에서 클라이언트로 보낼때만 : RECV_
+        //클라이언트에서 서버로 보내는 전용은 : SEND_
+        public const string SEND_CMD_MUSICEND = "CMD_MUSICEND";
         public const string RECV_CMD_CMD_CANCELED = "CMD_CANCELED";
         public const string CMD_ADDLIST = "ADDLIST";
         public const string CMD_PLAY = "PLAY";
-        public const string CMD_SKIP = "SKIP";
+        public const string SEND_CMD_SKIP = "SKIP";
         public const string CMD_SHOWLIST = "SHOWLIST";
         public const string CMD_SHUFFLE = "SHUFFLE";
 
-        private void MainProc(Packet packet)
+        private void MainProc(string clientId, Packet packet)
         {
             if (packet == null) return;
+
+            DebugLogger.Log($"Recv->{packet.Print()}");
 
             void AlreadyProc()
             {
@@ -125,6 +136,10 @@ namespace YMTCORE
 
             switch (packet.Data[0])
             {
+                case SEND_CMD_MUSICEND:
+                    ProcMusicEnd(clientId, packet);
+                    break;
+
                 case CMD_ADDLIST:
                     if (Monitor.TryEnter(ProcAddListLock))
                     {
@@ -141,7 +156,7 @@ namespace YMTCORE
                     ProcPlay(packet);
                     break;
 
-                case CMD_SKIP:
+                case SEND_CMD_SKIP:
                     if (Monitor.TryEnter(ProcSkipLock))
                     {
                         ProcSkip(packet);
@@ -179,6 +194,38 @@ namespace YMTCORE
             }
         }
 
+        private void ProcMusicEnd(string clientId, Packet packet)
+        {
+            bool next = false;
+
+            lock (m_clients_lock)
+            {
+                if (m_clients.ContainsKey(clientId))
+                {
+                    m_clients[clientId].MusicEnd = true;
+                }
+                else
+                {
+                    throw null;
+                }
+
+                lock (m_playlist_lock)
+                {
+                    if (m_playlist_now_play_url != packet.Data[1]) throw null;
+                }
+                next = ((from c in m_clients where c.Value.MusicEnd select c).Count() == m_clients.Count);
+            }
+
+            if (next)
+            {
+                Task.Run(() =>
+                {
+                    ProcRawSkip(1);
+                    ProcPlay(packet);
+                });
+            }
+        }
+
         private object ProcShuffleLock = new object();
         private void ProcShuffle(Packet packet)
         {
@@ -201,7 +248,7 @@ namespace YMTCORE
                     }
                     catch (Exception e)
                     {
-                        Log(e.Message);
+                        DebugLogger.Log(e.Message);
                     }
                 }
 
@@ -209,7 +256,7 @@ namespace YMTCORE
             }
             catch (Exception e)
             {
-                Log(e.Message);
+                DebugLogger.Log(e.Message);
             }
         }
 
@@ -237,6 +284,14 @@ namespace YMTCORE
         {
             if (packet.Data.Length != 2) return;
             uint count = uint.Parse(packet.Data[1]);
+
+            ProcRawSkip(count);
+
+            ProcPlay(packet);
+        }
+
+        private void ProcRawSkip(uint count)
+        {
             lock (m_playlist_lock)
             {
                 for (int i = 0; i < count; i++)
@@ -245,7 +300,6 @@ namespace YMTCORE
                     m_playlist.RemoveAt(0);
                 }
             }
-            SendAll(new Packet(packet, CMD_SKIP));
         }
 
         //병렬 지원
@@ -266,18 +320,27 @@ namespace YMTCORE
                         //m_playlist.RemoveAt(0);
                     }
                 }
+                lock(m_clients_lock)
+                {
+                    foreach(var c in m_clients)
+                    {
+                        c.Value.MusicEnd = false;
+                    }
+                }
                 if (url == null)
                 {
+                    m_playlist_now_play_url = null;
                     SendAll(new Packet(packet, CMD_PLAY, "null"));
                 }
                 else
                 {
+                    m_playlist_now_play_url = url;
                     SendAll(new Packet(packet, CMD_PLAY, url, DateTime.UtcNow.AddSeconds(1).ToString()));
                 }
             }
             catch (Exception e)
             {
-                Log(e.Message);
+                DebugLogger.Log(e.Message);
             }
         }
 
@@ -334,7 +397,7 @@ namespace YMTCORE
                         }
                         catch (Exception e)
                         {
-                            Log(e.Message);
+                            DebugLogger.Log(e.Message);
                             return false;
                         }
                         finally
@@ -362,7 +425,7 @@ namespace YMTCORE
                         }
                         catch (Exception e)
                         {
-                            Log(e.Message);
+                            DebugLogger.Log(e.Message);
                             return false;
                         }
                         finally
@@ -390,17 +453,19 @@ namespace YMTCORE
             }
             catch (Exception e)
             {
-                Log(e.Message);
+                DebugLogger.Log(e.Message);
                 SendAll(new Packet(packet, CMD_ADDLIST, "Not a URL to YouTube"));
             }
         }
 
-        private void SendAll(byte[] buffer)
+        private void SendAll(Packet packet)
         {
+            DebugLogger.Log($"Send->{packet.Print()}");
+
             IEnumerable<Task> tasks = null;
             lock (m_clients_lock)
             {
-                tasks = from c in m_clients select c.Value.Client.SendAsync(buffer, SocketFlags.None);
+                tasks = from c in m_clients select c.Value.This.Client.SendAsync((byte[])packet, SocketFlags.None);
             }
 
             if (tasks == null) return;
