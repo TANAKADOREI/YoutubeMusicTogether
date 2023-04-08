@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Net.Sockets;
 using System.Text;
@@ -49,6 +50,8 @@ namespace YMTCORE
 
                     if (packet == null) throw new Exception();
 
+                    Debug.WriteLine($"Recv->{packet.Data[0]} : {new StackTrace()}");
+
                     switch (packet.Data[0])
                     {
                         case Server.CMD_ADDLIST:
@@ -63,6 +66,12 @@ namespace YMTCORE
                         case Server.CMD_SHOWLIST:
                             RECV_CMD_ShowList(packet);
                             break;
+                        case Server.CMD_SHUFFLE:
+                            RECV_CMD_Shuffle(packet);
+                            break;
+                        case Server.RECV_CMD_CMD_CANCELED:
+                            RECV_CMD_CANCELED(packet);
+                            break;
                     }
                 }
             }
@@ -73,24 +82,30 @@ namespace YMTCORE
             Log("ClientRECV Stop");
         }
 
+        private void RECV_CMD_CANCELED(Packet packet)
+        {
+            Log(packet.Data[1]);
+        }
+
         public void SendMessage(Packet packet)
         {
+            Debug.WriteLine($"Send->{packet.Data[0]} : {new StackTrace()}");
             byte[] data = packet;
-            m_client.Client.Send(data,SocketFlags.None);
+            m_client.Client.Send(data, SocketFlags.None);
         }
 
         private void RECV_CMD_ShowList(Packet packet)
         {
-            StringBuilder builder= new StringBuilder();
-            if(packet.Data.Length > 2)
+            StringBuilder builder = new StringBuilder();
+            if (packet.Data.Length > 2)
             {
                 builder.AppendLine($"======<playlist({packet.Data[1]})>======");
-                for (int i = 2; i<packet.Data.Length; i++)
+                for (int i = 2; i < packet.Data.Length; i++)
                 {
-                    builder.Append(i-1);
+                    builder.Append(i - 1);
                     builder.Append(':');
                     builder.Append(packet.Data[i]);
-                    if(packet.Data[i].Length == Server.TITLE_MAX_LENGTH) builder.Append("...");
+                    if (packet.Data[i].Length == Server.TITLE_MAX_LENGTH) builder.Append("...");
                     builder.AppendLine();
                 }
                 builder.AppendLine("...");
@@ -118,7 +133,14 @@ namespace YMTCORE
         private void RECV_CMD_Skip(Packet packet)
         {
             //확인
-            m_player.Stop();//스탑후 MusicEnd콜백을 받음
+            if (m_player.IsReady())
+            {
+                SEND_CMD_Play();
+            }
+            else
+            {
+                m_player.Stop();
+            }
             Log("skiped...");
         }
 
@@ -127,9 +149,16 @@ namespace YMTCORE
             SendMessage(new Packet(Server.CMD_SKIP, count.ToString()));
         }
 
-        private void MusicEnd(YoutubePlayer obj)
+        private void MusicEnd(YoutubePlayer obj, bool clear)
         {
-            SEND_CMD_Play();
+            if (clear)
+            {
+                SEND_CMD_Skip();
+            }
+            else
+            {
+                SEND_CMD_Play();
+            }
         }
 
         private void RECV_CMD_Play(Packet packet)
@@ -139,6 +168,7 @@ namespace YMTCORE
                 m_player.Stop();
                 return;
             }
+
             var fire_time = DateTime.Parse(packet.Data[2]);
             var url = packet.Data[1];
 
@@ -152,7 +182,16 @@ namespace YMTCORE
                     Task.Delay(interval);
                 }
 
-                m_player.Play(url);
+                if (!m_player.IsReady())
+                {
+                    //플레이 도중
+                    m_player.Stop();
+                    return;
+                }
+                else
+                {
+                    m_player.Play(url);
+                }
 
                 interval = DateTime.UtcNow - fire_time;
                 m_player.Seek(interval.Duration());
@@ -170,7 +209,7 @@ namespace YMTCORE
             {
                 Log(packet.Data[1]);
             }
-            catch(Exception e)
+            catch (Exception e)
             {
                 Log(e.Message);
             }

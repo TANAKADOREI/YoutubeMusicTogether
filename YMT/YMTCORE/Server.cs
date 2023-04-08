@@ -7,6 +7,8 @@ using YoutubeExplode.Common;
 using YoutubeExplode.Videos.Streams;
 using NAudio.Dmo;
 using AngleSharp.Dom;
+using YoutubeExplode.Videos;
+using System.Collections.Generic;
 
 namespace YMTCORE
 {
@@ -19,9 +21,8 @@ namespace YMTCORE
 
         private object m_playlist_lock = new object();
         //<title,url>
-        private List<Tuple<string, string>> m_playlist = new List<Tuple<string, string>>();
+        private List<YVideoInfo> m_playlist = new List<YVideoInfo>();
         private Random m_playlist_rand = new Random();
-        private readonly YoutubeClient m_youtube = new YoutubeClient();
         private Action<string> Log;
         private Thread m_thread;
 
@@ -106,6 +107,7 @@ namespace YMTCORE
             }
         }
 
+        public const string RECV_CMD_CMD_CANCELED = "CMD_CANCELED";
         public const string CMD_ADDLIST = "ADDLIST";
         public const string CMD_PLAY = "PLAY";
         public const string CMD_SKIP = "SKIP";
@@ -115,26 +117,69 @@ namespace YMTCORE
         private void MainProc(Packet packet)
         {
             if (packet == null) return;
+
+            void AlreadyProc()
+            {
+                SendAll(new Packet(packet, RECV_CMD_CMD_CANCELED, $"The same operation ({packet.Data[0]}) is already in progress"));
+            }
+
             switch (packet.Data[0])
             {
                 case CMD_ADDLIST:
-                    ProcAddList(packet);
+                    if (Monitor.TryEnter(ProcAddListLock))
+                    {
+                        ProcAddList(packet);
+                        Monitor.Exit(ProcAddListLock);
+                    }
+                    else
+                    {
+                        AlreadyProc();
+                    }
                     break;
+
                 case CMD_PLAY:
                     ProcPlay(packet);
                     break;
+
                 case CMD_SKIP:
-                    ProcSkip(packet);
+                    if (Monitor.TryEnter(ProcSkipLock))
+                    {
+                        ProcSkip(packet);
+                        Monitor.Exit(ProcSkipLock);
+                    }
+                    else
+                    {
+                        AlreadyProc();
+                    }
                     break;
+
                 case CMD_SHOWLIST:
-                    ProcShowList(packet);
+                    if (Monitor.TryEnter(ProcShowListLock))
+                    {
+                        ProcShowList(packet);
+                        Monitor.Exit(ProcShowListLock);
+                    }
+                    else
+                    {
+                        AlreadyProc();
+                    }
                     break;
+
                 case CMD_SHUFFLE:
-                    ProcShuffle(packet);
+                    if (Monitor.TryEnter(ProcShuffleLock))
+                    {
+                        ProcShuffle(packet);
+                        Monitor.Exit(ProcShuffleLock);
+                    }
+                    else
+                    {
+                        AlreadyProc();
+                    }
                     break;
             }
         }
 
+        private object ProcShuffleLock = new object();
         private void ProcShuffle(Packet packet)
         {
             try
@@ -169,7 +214,7 @@ namespace YMTCORE
         }
 
         public const int TITLE_MAX_LENGTH = 50;
-
+        private object ProcShowListLock = new object();
         private void ProcShowList(Packet packet)
         {
             List<string> list = new List<string>();
@@ -180,14 +225,14 @@ namespace YMTCORE
                 for (int i = 0; i < 50; i++)
                 {
                     if (m_playlist.Count <= i) break;
-                    var temp = m_playlist[i].Item1.Trim();
-                    list.Add(temp.Substring(0, temp.Length >= TITLE_MAX_LENGTH ? TITLE_MAX_LENGTH : temp.Length).Trim());
+                    list.Add(m_playlist[i].GetTitle());
                 }
             }
 
             SendAll(new Packet(packet, list.ToArray()));
         }
 
+        private object ProcSkipLock = new object();
         private void ProcSkip(Packet packet)
         {
             if (packet.Data.Length != 2) return;
@@ -203,6 +248,7 @@ namespace YMTCORE
             SendAll(new Packet(packet, CMD_SKIP));
         }
 
+        //병렬 지원
         private void ProcPlay(Packet packet)
         {
             try
@@ -216,7 +262,7 @@ namespace YMTCORE
                     }
                     else
                     {
-                        url = m_playlist[0].Item2;
+                        url = m_playlist[0].GetDirectURL();
                         //m_playlist.RemoveAt(0);
                     }
                 }
@@ -235,6 +281,34 @@ namespace YMTCORE
             }
         }
 
+        class YVideoInfo
+        {
+            private string m_url;
+            private Video m_vd;
+
+            public YVideoInfo(string url, Video vd)
+            {
+                m_url = url;
+                m_vd = vd;
+            }
+
+            public string GetTitle()
+            {
+                string raw = $"{m_vd.Author.ChannelTitle}:{m_vd.Title}";
+                var temp = raw.Trim();
+                return temp.Substring(0, temp.Length >= TITLE_MAX_LENGTH ? TITLE_MAX_LENGTH : temp.Length).Trim();
+            }
+
+            public string GetDirectURL()
+            {
+                YoutubeClient m_youtube = new YoutubeClient();
+                var stream_mani = m_youtube.Videos.Streams.GetManifestAsync(m_url).Result;
+                var stream_info = stream_mani.GetAudioOnlyStreams().GetWithHighestBitrate();
+                return stream_info.Url;
+            }
+        }
+
+        private object ProcAddListLock = new object();
         private void ProcAddList(Packet packet)
         {
             try
@@ -242,27 +316,30 @@ namespace YMTCORE
                 if (packet.Data.Length != 2) return;
                 {
                     string youtube_url = packet.Data[1];
-                    List<Tuple<string, string>> direct_urls = new List<Tuple<string, string>>();
                     DateTime dateTime = DateTime.Now;
-
-                    string GetVideoTitle(YoutubeExplode.Videos.Video v)
-                    {
-                        return $"{v.Author.ChannelTitle}:{v.Title}";
-                    }
 
                     bool TryParseVideo()
                     {
                         try
                         {
-                            var stream_mani = m_youtube.Videos.Streams.GetManifestAsync(youtube_url).Result;
-                            var stream_info = stream_mani.GetAudioOnlyStreams().GetWithHighestBitrate();
-                            direct_urls.Add(new Tuple<string, string>(GetVideoTitle(m_youtube.Videos.GetAsync(youtube_url).Result), stream_info.Url));
+                            YoutubeClient m_youtube = new YoutubeClient();
+                            var info = new YVideoInfo(youtube_url, m_youtube.Videos.GetAsync(youtube_url).Result);
+
+                            lock (m_playlist_lock)
+                            {
+                                m_playlist.Add(info);
+                            }
+
                             return true;
                         }
-                        catch
+                        catch (Exception e)
                         {
-                            direct_urls.Clear();
+                            Log(e.Message);
                             return false;
+                        }
+                        finally
+                        {
+                            GC.Collect();
                         }
                     }
 
@@ -270,19 +347,27 @@ namespace YMTCORE
                     {
                         try
                         {
+                            YoutubeClient m_youtube = new YoutubeClient();
                             var vs = m_youtube.Playlists.GetVideosAsync(youtube_url);
                             foreach (var url in vs.GetAwaiter().GetResult().Select(_ => _.Url))
                             {
-                                string direct_url = m_youtube.Videos.Streams.GetManifestAsync(url).Result.GetAudioOnlyStreams().GetWithHighestBitrate().Url;
-                                string title = GetVideoTitle(m_youtube.Videos.GetAsync(url).Result);
-                                direct_urls.Add(new Tuple<string, string>(title, direct_url));
+                                var info = new YVideoInfo(url, m_youtube.Videos.GetAsync(url).Result);
+
+                                lock (m_playlist_lock)
+                                {
+                                    m_playlist.Add(info);
+                                }
                             }
                             return true;
                         }
-                        catch
+                        catch (Exception e)
                         {
-                            direct_urls.Clear();
+                            Log(e.Message);
                             return false;
+                        }
+                        finally
+                        {
+                            GC.Collect();
                         }
                     }
 
@@ -297,16 +382,7 @@ namespace YMTCORE
                             }
                         }
 
-                        //유튜브 링크
-                        if (direct_urls.Count() != 0)
-                        {
-                            lock (m_playlist_lock)
-                            {
-                                m_playlist.AddRange(direct_urls);
-                            }
-                        }
-
-                        SendAll(new Packet(packet, CMD_ADDLIST, $"Added({direct_urls.Count}) to Queue"));
+                        SendAll(new Packet(packet, CMD_ADDLIST, $"Queue updated"));
                     }
 
                     Task.Run(Proc);
