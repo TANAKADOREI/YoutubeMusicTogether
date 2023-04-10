@@ -42,12 +42,15 @@ namespace YMT
                             Console.WriteLine("error");
                         }
 
-
                         ExtractZipFile(Path.Combine(dest_dir, RELEASE_FILE));
                         string[] new_files = Directory.GetFiles(Path.Combine(dest_dir, "net6.0"));
 
-
-                        Process.Start("YMTUPDATER");
+                        {
+                            Process process= new Process();
+                            process.StartInfo.FileName = "YMTUPDATER";
+                            process.StartInfo.UseShellExecute = true;
+                            process.Start();
+                        }
                     }
                     break;
             }
@@ -285,6 +288,9 @@ namespace YMT
 
             DebugLogger.SubLogger = Log;
             Server server = new Server(port);
+            Console.ReadLine();
+            Console.ReadLine();
+            server.Destroy();
         }
     }
 }
