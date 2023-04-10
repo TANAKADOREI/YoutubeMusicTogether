@@ -61,7 +61,7 @@ namespace YMTCORE
             }
         }
 
-        public void SetVolume(bool up)
+        public float SetVolume(bool up)
         {
             lock (m_lock)
             {
@@ -72,6 +72,7 @@ namespace YMTCORE
                     else if (vol >= 1) m_player.Volume = 1;
                     else throw null;
                 }
+                return m_player.Volume*100;
             }
         }
 

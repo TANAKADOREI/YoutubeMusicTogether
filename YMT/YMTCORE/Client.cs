@@ -198,6 +198,6 @@ namespace YMTCORE
             m_client.Close();
         }
 
-        public Action<bool> Volume => m_player.SetVolume;
+        public Func<bool,float> Volume => m_player.SetVolume;
     }
 }

@@ -46,7 +46,7 @@ namespace YMT
                         string[] new_files = Directory.GetFiles(Path.Combine(dest_dir, "net6.0"));
 
                         {
-                            Process process= new Process();
+                            Process process = new Process();
                             process.StartInfo.FileName = "YMTUPDATER";
                             process.StartInfo.UseShellExecute = true;
                             process.Start();
@@ -223,10 +223,10 @@ namespace YMT
                         client.SEND_CMD_Shuffle();
                         break;
                     case "VOLUME_UP":
-                        client.Volume(true);
+                        Console.WriteLine("Vol : " + client.Volume(true));
                         break;
                     case "VOLUME_DOWN":
-                        client.Volume(false);
+                        Console.WriteLine("Vol : " + client.Volume(true));
                         break;
                 }
                 Console.Clear();
@@ -288,8 +288,11 @@ namespace YMT
 
             DebugLogger.SubLogger = Log;
             Server server = new Server(port);
-            Console.ReadLine();
-            Console.ReadLine();
+            while (true)
+            {
+                Console.WriteLine("\"Close\"");
+                if (Console.ReadLine() == "Close") break;
+            }
             server.Destroy();
         }
     }
