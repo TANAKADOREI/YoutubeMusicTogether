@@ -15,10 +15,11 @@ namespace YMTCORE
             string log = $"==================[{DateTime.Now}]==================\n" +
                 $"{msg}\n{new StackTrace()}======================================================";
 #if RELEASE
-#else
             Debug.WriteLine(log);
-#endif
             SubLogger?.Invoke(log);
+#else
+            SubLogger?.Invoke(msg);
+#endif
         }
     }
 }

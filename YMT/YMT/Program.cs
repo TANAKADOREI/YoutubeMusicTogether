@@ -21,14 +21,17 @@ namespace YMT
             switch (Console.ReadLine().ToUpper())
             {
                 case "S":
+                    Console.ForegroundColor = ConsoleColor.DarkGray;
                     ProcServer();
                     break;
                 case "C":
+                    Console.ForegroundColor = ConsoleColor.Yellow;
                     ProcClient();
                     break;
                 case "U":
+                    Console.ForegroundColor = ConsoleColor.Green;
                     {
-                        string dest_dir = $"{Path.Combine(Environment.CurrentDirectory,"UpdateTemp")}";
+                        string dest_dir = $"{Path.Combine(Environment.CurrentDirectory, "UpdateTemp")}";
                         if (!Directory.Exists(dest_dir))
                         {
                             Directory.CreateDirectory(dest_dir);
@@ -43,7 +46,7 @@ namespace YMT
                         ExtractZipFile(Path.Combine(dest_dir, RELEASE_FILE));
                         string[] new_files = Directory.GetFiles(Path.Combine(dest_dir, "net6.0"));
 
-                        
+
                         Process.Start("YMTUPDATER");
                     }
                     break;
@@ -52,7 +55,7 @@ namespace YMT
 
         public static void ExtractZipFile(string zipFilePath)
         {
-            ZipFile.ExtractToDirectory(zipFilePath, Path.GetDirectoryName(zipFilePath),true);
+            ZipFile.ExtractToDirectory(zipFilePath, Path.GetDirectoryName(zipFilePath), true);
         }
 
         public static async Task<bool> DownloadLatestReleaseAsync(string repository_url, string output_directory)
@@ -114,7 +117,7 @@ namespace YMT
                 }
                 catch
                 {
-                    fast_ip= null;
+                    fast_ip = null;
                     fast_port = -1;
                 }
             }
@@ -216,10 +219,10 @@ namespace YMT
                     case Server.CMD_SHUFFLE:
                         client.SEND_CMD_Shuffle();
                         break;
-                    case "VolumeUp":
+                    case "VOLUME_UP":
                         client.Volume(true);
                         break;
-                    case "VolumeDown":
+                    case "VOLUME_DOWN":
                         client.Volume(false);
                         break;
                 }
