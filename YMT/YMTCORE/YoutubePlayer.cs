@@ -71,8 +71,9 @@ namespace YMTCORE
                     if (vol <= 0) m_player.Volume = 0;
                     else if (vol >= 1) m_player.Volume = 1;
                     else throw null;
-                }
                 return m_player.Volume*100;
+                }
+                return float.NaN;
             }
         }
 

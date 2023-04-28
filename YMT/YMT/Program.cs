@@ -223,10 +223,10 @@ namespace YMT
                         client.SEND_CMD_Shuffle();
                         break;
                     case "VOLUME_UP":
-                        Console.WriteLine("Vol : " + client.Volume(true));
+                        Task.Run(() => { Console.WriteLine("Vol : " + client.Volume(false)); });
                         break;
                     case "VOLUME_DOWN":
-                        Console.WriteLine("Vol : " + client.Volume(true));
+                        Task.Run(() => { Console.WriteLine("Vol : " + client.Volume(true)); });
                         break;
                 }
                 Console.Clear();
